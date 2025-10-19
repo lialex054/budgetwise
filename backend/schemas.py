@@ -33,3 +33,16 @@ class Transaction(TransactionBase):
 
     class Config:
         from_attributes = True
+
+
+# Schema for updating a transaction category
+class TransactionUpdate(BaseModel):
+    category: str
+
+# Schema for the incoming chat question
+class ChatRequest(BaseModel):
+    question: str
+
+# Schema for the outgoing chat response
+class ChatResponse(BaseModel):
+    response: str

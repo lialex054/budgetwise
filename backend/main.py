@@ -2,6 +2,7 @@
 
 import csv
 import io
+import json
 from datetime import datetime
 from typing import List
 
@@ -20,6 +21,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # Gemini Import
 import google.generativeai as genai
+
+
+
+# --- DB Setup ---
 
 # Create the database tables
 models.Base.metadata.create_all(bind=engine)
@@ -59,7 +64,7 @@ genai.configure(api_key=GEMINI_API_KEY)
 # --- API ENDPOINT ---
 
 # Update transcation category
-@app.patch("/tansactions/{transaction_id}", response_model = schemas.Transaction)
+@app.patch("/transactions/{transaction_id}/", response_model = schemas.Transaction)
 def update_transaction_category(
     transaction_id: int,
     transaction_update: schemas.TransactionUpdate,

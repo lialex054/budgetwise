@@ -2,6 +2,20 @@
 
 import React, {useState, useEffect} from 'react';
 import apiClient from './api'; // API helper
+import Chat from './Chat';
+
+// Category List
+const CATEGORY_OPTIONS = [
+  "Uncategorized",
+  "Groceries",
+  "Transport",
+  "Utilities",
+  "Rent",
+  "Entertainment",
+  "Dining Out",
+  "Shopping",
+  "Health",
+]
 
 function App() {
   const [transactions, setTransactions] = useState([]); // Holds transactions list
@@ -54,9 +68,33 @@ function App() {
       }
     };
 
+  const handleCategoryChange = async (transactionId, newCategory) => {
+    // Optimistic UI Update: Update the state immediately 
+    setTransactions(currentTransactions => 
+      currentTransactions.map(t =>
+        t.id === transactionId ? {...t, category: newCategory} : t
+      )
+    );
+
+    try {
+      await apiClient.patch(`/transactions/${transactionId}/`, {
+        category: newCategory,
+      });
+      // If API call succeeds, our state is correct
+    } catch(error) {
+      console.error('Error updating category:', error);
+      // Revert the optimistic update on failure
+      // fetchTransactions();
+    }
+  }
+    
+    
+
   return (
     <div className = "container">
       <h1>BudgetWise</h1>
+
+      <Chat />
 
       {/* File Upload Section */}
       <div className="upload-section">
@@ -85,7 +123,18 @@ function App() {
                 <td>{t.date}</td>
                 <td>{t.merchant_name}</td>
                 <td>{t.amount.toFixed(2)}</td>
-                <td>{t.category}</td>
+                <td>
+                  <select
+                   value = {t.category}
+                   onChange = {(e) => handleCategoryChange(t.id, e.target.value)}
+                  >
+                    {CATEGORY_OPTIONS.map((category) => (
+                      <option key={category} value={category}>
+                        {category}
+                      </option>
+                    ))}
+                  </select>
+                  </td>
               </tr>
             ))}
           </tbody>

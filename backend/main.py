@@ -3,7 +3,7 @@
 import csv
 import io
 import json
-from datetime import datetime
+from datetime import datetime, date
 from typing import List
 
 from fastapi import FastAPI, Depends, File, UploadFile, HTTPException
@@ -46,6 +46,19 @@ app.add_middleware(
     allow_headers=["*"], # allow all headers
 )
 
+# --- API KEY ---
+GEMINI_API_KEY = "AIzaSyCpM_uC_F4MLuObZ85yJRu6Y8DvLazbfrE"
+genai.configure(api_key=GEMINI_API_KEY)
+
+# Path for our merchant map
+MERCHANT_MAP_FILE = "merchant_map.json"
+
+# Fixed list of categories
+CATEGORY_OPTIONS = [
+    "Uncategorized", "Groceries", "Transport", "Utilitiies", "Rent", 
+    "Entertainment", "Dining Out", "Shopping", "Healthcare"
+]
+
 # --- DEPENDENCY ---
 # This function provides a database session to the API endpoints.
 # It ensures that the database session is always closed after the request is finished.
@@ -55,11 +68,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-# --- API KEY ---
-GEMINI_API_KEY = "AIzaSyCpM_uC_F4MLuObZ85yJRu6Y8DvLazbfrE"
-genai.configure(api_key=GEMINI_API_KEY)
 
 # --- API ENDPOINT ---
 
@@ -156,11 +164,17 @@ def get_transactions(db: Session = Depends(get_db)):
 async def upload_csv(
     file: UploadFile = File(...), db: Session = Depends(get_db)
 ):
-    # Ensure uploaded file is a CSV
-    if not file.filename.endswith(".csv"):
-        raise HTTPException(status_code=400, detail=
-                            "Invalid file type. Please upload a CSV.")
     
+    # 1. Load merchant map from disk
+    try:
+        with open(MERCHANT_MAP_FILE, "r") as f:
+            merchant_map = json.load(f)
+    except FileNotFoundError:
+        merchant_map = {} # start with empty map if file doesn't exist
+
+    # 2. Initialise flag
+    has_map_changed = False
+
     # Read file content directly from memory
     contents = await file.read()
     file_data = io.StringIO(contents.decode("utf-8"))
@@ -170,30 +184,124 @@ async def upload_csv(
     skipped_rows = []
 
     # Iterate through each row of our CSV
-    for i, row in enumerate(csv_reader, start=2): # Start at 2 to account for header row
+    for i, row in enumerate(csv_reader, start=2): # Start at 2 to account for header
         try:
-            # Pydantic automatically handles date parsing from string
+            # pydantic handles data parsing from string
             transaction_data = schemas.TransactionCreate(**row)
+            merchant_name = transaction_data.merchant_name
 
-            # Convert Pydantic schema to SQLAlchemy model
-            db_transaction = models.Transaction(**transaction_data.dict())
+            # 3. check if merchant exists in map
+            category = merchant_map.get(merchant_name)
+
+            # 4. If not in map, call the LLM
+            if category is None:
+
+                # 4a. Construct a strict prompt
+                prompt = f"""
+                You are a categorization assistant. You MUST choose one category
+                from the following list: {CATEGORY_OPTIONS}.
+
+                What is the best category for the merchant: "{merchant_name}"?
+
+                Respond with ONLY the category name.
+                """
+
+                # 4b. Call the LLM
+                model = genai.GenerativeModel("gemini-2.5-flash-lite")
+                response = await model.generate_content_async(prompt)
+
+                # 4c. Clean and validate response
+                llm_category = response.text.strip()
+
+                # Check if response is valid
+                if llm_category in CATEGORY_OPTIONS:
+                    category = llm_category
+                else:
+                    #Fallback if LLM gives invalid response
+                    category = "Uncategorized"
+
+
+                # 4d. Update merchant map
+                merchant_map[merchant_name] = category
+                has_map_changed = True
+
+            # 5. Create the transaction in DB with new category
+            # Pass new category in, overriding the model's default
+            db_transaction = models.Transaction(
+                **transaction_data.dict(), 
+                category=category
+            )
             valid_transactions.append(db_transaction)
 
         except ValidationError as e:
             # if row is malformed, log and continue
             skipped_rows.append({"row": i , "errors": e.errors()})
-
         except Exception as e:
             # catch any other unexpected errors
             skipped_rows.append({"row": i , "errors": str(e)})
 
-    # Add all valid transactions to the database session at once
+    # Add all valid transaction to the DB
     if valid_transactions:
         db.add_all(valid_transactions)
         db.commit()
+
+    # 6. Save the updated map back to disk
+    if has_map_changed:
+        with open(MERCHANT_MAP_FILE, "w") as f:
+            json.dump(merchant_map, f, indent=2)
 
     return {
         "message" : "CSV processed.",
         "imported_count": len(valid_transactions),
         "skipped_rows": skipped_rows,
     }
+
+# POST endpoint to set monthly budget
+@app.post("/budget/", status_code=200)
+def set_budget(budget_update: schemas.BudgetUpdate, db: Session = Depends(get_db)):
+    # Find the first settings object, or create one if it doesn't exist
+    settings = db.query(models.UserSettings).first()
+    if not settings:
+        settings = models.UserSettings(monthly_budget=budget_update.amount)
+        db.add(settings)
+    else:
+        settings.monthly_budget = budget_update.amount
+
+    db.commit()
+    return {"message": "Budget updated successfully."}
+
+
+@app.get("/dashboard-data/")
+def get_dashboard_data(db: Session = Depends(get_db)):
+    # 1. Get user's budget
+    settings = db.query(models.UserSettings).first()
+    monthly_budget = settings.monthly_budget if settings else 0.0
+
+    # 2. Get the start and end of the current month
+    today = date.today()
+    start_of_month = today.replace(day=1)
+
+    # 3. Calculate total spend for current month
+    total_spend_result = db.query(func.sum(models.Transaction.amount)).filter(
+        models.Transaction.date >= start_of_month
+    ).scalar()
+    total_spend = total_spend_result or 0.0
+
+    # 4. Get spending breakdown by category
+    category_spend_result = db.query(
+        models.Transaction.category,
+        func.sum(models.Transaction.amount).label("total")
+    ).filter(
+        models.Transaction.date >= start_of_month
+    ).group_by(
+        models.Transaction.category
+    ).order_by(
+        func.sum(models.Transaction.amount).desc()
+    ).all()
+
+    return{
+        "monthly_budget": monthly_budget,
+        "total_spend_current_month": total_spend,
+        "category_spend_current_month": category_spend_result
+    }
+

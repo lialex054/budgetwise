@@ -12,3 +12,9 @@ class Transaction(Base):
     date = Column(Date, nullable=False)
     category = Column(String, default = "Uncategorized", nullable=False)
     transaction_id= Column(String, unique=True, index=True)
+
+class UserSettings(Base):
+    __tablename__ = "user_settings"
+
+    id = Column(Integer, primary_key=True)
+    monthly_budget = Column(Float, nullable = True)

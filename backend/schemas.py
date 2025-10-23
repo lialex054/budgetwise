@@ -46,3 +46,6 @@ class ChatRequest(BaseModel):
 # Schema for the outgoing chat response
 class ChatResponse(BaseModel):
     response: str
+
+class BudgetUpdate(BaseModel):
+    amount: float

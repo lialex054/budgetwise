@@ -29,6 +29,8 @@ import google.generativeai as genai
 # Create the database tables
 models.Base.metadata.create_all(bind=engine)
 
+print("All tables created:", models.Base.metadata.tables.keys())
+
 # Initialise FastAPI app
 app = FastAPI()
 
@@ -259,49 +261,79 @@ async def upload_csv(
 # POST endpoint to set monthly budget
 @app.post("/budget/", status_code=200)
 def set_budget(budget_update: schemas.BudgetUpdate, db: Session = Depends(get_db)):
-    # Find the first settings object, or create one if it doesn't exist
-    settings = db.query(models.UserSettings).first()
-    if not settings:
-        settings = models.UserSettings(monthly_budget=budget_update.amount)
-        db.add(settings)
-    else:
-        settings.monthly_budget = budget_update.amount
+    try:
+        # Find the first settings object
+        settings = db.query(models.UserSettings).first()
+        
+        if not settings:
+            # If no settings exist, create a new one
+            print("No settings found, creating new one...") # Debug line
+            settings = models.UserSettings(monthly_budget=budget_update.amount)
+            db.add(settings)
+        else:
+            # If settings exist, update them
+            print("Settings found, updating budget...") # Debug line
+            settings.monthly_budget = budget_update.amount
+        
+        # This is the crucial part
+        db.commit()  # Try to save the changes
+        db.refresh(settings) # Get the newly saved data
+        
+        print(f"Successfully committed budget: {settings.monthly_budget}") # Debug line
+        return {"message": "Budget updated successfully."}
 
-    db.commit()
-    return {"message": "Budget updated successfully."}
+    except Exception as e:
+        # If anything goes wrong, roll back
+        db.rollback()
+        print(f"ERROR: Could not commit budget. Rolling back. Error: {e}") # Debug line
+        raise HTTPException(status_code=500, detail="Failed to save budget to database.")
 
-
+# backend/main.py - DEBUGGING VERSION
 @app.get("/dashboard-data/")
 def get_dashboard_data(db: Session = Depends(get_db)):
+    print("--- GET /dashboard-data/ CALLED ---")
+    
     # 1. Get user's budget
-    settings = db.query(models.UserSettings).first()
-    monthly_budget = settings.monthly_budget if settings else 0.0
+    settings = None
+    try:
+        settings = db.query(models.UserSettings).first()
+    except Exception as e:
+        print(f"ERROR querying UserSettings: {e}")
+
+    if settings:
+        print(f"Found settings. Budget: {settings.monthly_budget}")
+    else:
+        print("No settings found in database.")
+
+    monthly_budget = settings.monthly_budget if settings and settings.monthly_budget is not None else 0.0
+    print(f"Returning monthly_budget: {monthly_budget}")
 
     # 2. Get the start and end of the current month
     today = date.today()
     start_of_month = today.replace(day=1)
 
     # 3. Calculate total spend for current month
-    total_spend_result = db.query(func.sum(models.Transaction.amount)).filter(
-        models.Transaction.date >= start_of_month
-    ).scalar()
+    total_spend_result = db.query(func.sum(models.Transaction.amount)).scalar()
     total_spend = total_spend_result or 0.0
 
     # 4. Get spending breakdown by category
     category_spend_result = db.query(
         models.Transaction.category,
         func.sum(models.Transaction.amount).label("total")
-    ).filter(
-        models.Transaction.date >= start_of_month
     ).group_by(
         models.Transaction.category
     ).order_by(
         func.sum(models.Transaction.amount).desc()
     ).all()
 
+    category_spend = [
+        {"category": category, "total": total}
+        for category, total in category_spend_result
+    ]
+
     return{
         "monthly_budget": monthly_budget,
         "total_spend_current_month": total_spend,
-        "category_spend_current_month": category_spend_result
+        "category_spend_current_month": category_spend
     }
 

@@ -3,6 +3,8 @@
 import React, {useState, useEffect} from 'react';
 import apiClient from './api'; // API helper
 import Chat from './Chat';
+import Budget from './Budget';
+import Dashboard from './Dashboard';
 
 // Category List
 const CATEGORY_OPTIONS = [
@@ -21,25 +23,36 @@ function App() {
   const [transactions, setTransactions] = useState([]); // Holds transactions list
   const [file, setFile] = useState(null); // Holds selected file
   const [uploadStatus, setUploadStatus] = useState(''); // Upload status message
+  const [dashboardData, setDashboardData] = useState(null);
 
   // Fetch transactions from backend
   const fetchTransactions = async () => {
     try {
-      const response = await apiClient.get('/transactions');
+      const response = await apiClient.get('/transactions/');
       setTransactions(response.data);
     } catch (error) {
       console.error('Error fetching transactions:', error);
     }
   };
 
+  const fetchDashboardData = async () => {
+    try {
+      const response = await apiClient.get('/dashboard-data/');
+      setDashboardData(response.data);
+    } catch (error) {
+      console.error("Error fetching dashboard data:", error)
+    }
+  };
+
   // useEffect runs this code once component first loads
   useEffect(() => {
     fetchTransactions();
+    fetchDashboardData();
   }, []);
 
   // Handle file selection
   const handleFileChange = (e) => {
-    setFile(event.target.files[0]);
+    setFile(e.target.files[0]);
     setUploadStatus(''); // Clear previous status on new file selection
   };
   
@@ -55,13 +68,14 @@ function App() {
 
       try {
         setUploadStatus('Uploading...');
-        const response = await apiClient.post('/upload', formData, {
+        const response = await apiClient.post('/upload/', formData, {
           headers: {
             'Content-Type': 'multipart/form-data',
           },
         });
         setUploadStatus(`Success! File imported: ${response.data.imported_count}. Skipped ${response.data.skipped_rows.length}.`);
         fetchTransactions(); // Refresh transactions list
+        fetchDashboardData();
       } catch (error) {
         console.error('Error uploading file:', error);
         setUploadStatus('Upload failed. Check console for details.');
@@ -80,6 +94,7 @@ function App() {
       await apiClient.patch(`/transactions/${transactionId}/`, {
         category: newCategory,
       });
+      fetchDashboardData();
       // If API call succeeds, our state is correct
     } catch(error) {
       console.error('Error updating category:', error);
@@ -93,6 +108,11 @@ function App() {
   return (
     <div className = "container">
       <h1>BudgetWise</h1>
+
+      {/* --- ADD THESE NEW COMPONENTS --- */}
+      <Budget onBudgetSet={fetchDashboardData} />
+      <Dashboard data={dashboardData} />
+      {/* ---------------------------------- */}
 
       <Chat />
 

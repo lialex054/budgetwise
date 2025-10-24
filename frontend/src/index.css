@@ -125,3 +125,101 @@ thead {
   border-radius: 8px;
   margin-left: 0.5rem;
 }
+
+.budget-section {
+  background-color: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.budget-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.budget-form input {
+  flex-grow: 1;
+  padding: 0.6rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 1rem;
+}
+
+.dashboard-section {
+  background-color: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.budget-overview {
+  margin-bottom: 2rem;
+}
+
+.progress-bar-container {
+  width: 100%;
+  background-color: #ecf0f1;
+  border-radius: 8px;
+  height: 24px;
+  overflow: hidden; /* This is key to making the inner bar rounded */
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background-color: #3498db;
+  border-radius: 8px 0 0 8px;
+  transition: width 0.5s ease-in-out;
+}
+
+.progress-bar-label {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.progress-bar-label strong {
+  font-size: 1.1rem;
+  color: #2c3e50;
+  margin-right: 0.25rem;
+}
+
+.category-overview ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.category-overview li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.category-overview li:last-child {
+  border-bottom: none;
+}
+
+.category-label {
+  display: flex;
+  flex-direction: column;
+}
+
+.category-label span:first-child {
+  font-weight: 600;
+  color: #333;
+}
+.category-label span:last-child {
+  font-size: 0.9rem;
+  color: #777;
+}
+
+.category-percentage {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #3498db;
+}

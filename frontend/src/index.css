@@ -1,225 +1,68 @@
-/* frontend/src/index.css */
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  background-color: #f4f7f6;
-  color: #333;
-  margin: 0;
-  padding: 2rem;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 3.9%;
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 96.1%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 45.1%;
+    --accent: 0 0% 96.1%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 89.8%;
+    --input: 0 0% 89.8%;
+    --ring: 0 0% 3.9%;
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    --radius: 0.5rem
+  }
+  .dark {
+    --background: 0 0% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 9%;
+    --secondary: 0 0% 14.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 14.9%;
+    --muted-foreground: 0 0% 63.9%;
+    --accent: 0 0% 14.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 14.9%;
+    --input: 0 0% 14.9%;
+    --ring: 0 0% 83.1%;
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%
+  }
 }
 
-.container {
-  max-width: 900px;
-  margin: 0 auto;
-  background-color: #fff;
-  padding: 2rem;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-}
-
-h1, h2 {
-  color: #2c3e50;
-}
-
-.upload-section {
-  margin-bottom: 2rem;
-  padding: 1.5rem;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  background-color: #fafafa;
-}
-
-input[type="file"] {
-  margin-right: 1rem;
-}
-
-button {
-  padding: 0.6rem 1.2rem;
-  background-color: #3498db;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 1rem;
-}
-
-button:hover {
-  background-color: #2980b9;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 1rem;
-}
-
-th, td {
-  padding: 0.8rem;
-  text-align: left;
-  border-bottom: 1px solid #ddd;
-}
-
-thead {
-  background-color: #ecf0f1;
-}
-
-.chat-container {
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  background-color: #fdfdfd;
-  margin-bottom: 2rem;
-  display: flex;
-  flex-direction: column;
-  height: 400px; /* Give it a fixed height */
-}
-
-.chat-messages {
-  flex-grow: 1;
-  overflow-y: auto; /* Make messages scrollable */
-  padding: 1rem;
-}
-
-.message {
-  margin-bottom: 0.75rem;
-  padding: 0.5rem 1rem;
-  border-radius: 18px;
-  max-width: 80%;
-}
-
-.message p {
-  margin: 0;
-}
-
-.message.user {
-  background-color: #3498db;
-  color: white;
-  margin-left: auto;
-  border-bottom-right-radius: 4px;
-}
-
-.message.ai {
-  background-color: #ecf0f1;
-  color: #333;
-  margin-right: auto;
-  border-bottom-left-radius: 4px;
-}
-
-.chat-input-form {
-  display: flex;
-  border-top: 1px solid #e0e0e0;
-  padding: 0.5rem;
-}
-
-.chat-input-form input {
-  flex-grow: 1;
-  border: none;
-  padding: 0.75rem;
-  font-size: 1rem;
-  background: transparent;
-}
-
-.chat-input-form input:focus {
-  outline: none;
-}
-
-.chat-input-form button {
-  border-radius: 8px;
-  margin-left: 0.5rem;
-}
-
-.budget-section {
-  background-color: #fafafa;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  padding: 1.5rem;
-  margin-bottom: 2rem;
-}
-
-.budget-form {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.budget-form input {
-  flex-grow: 1;
-  padding: 0.6rem;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  font-size: 1rem;
-}
-
-.dashboard-section {
-  background-color: #fff;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  padding: 1.5rem;
-  margin-bottom: 2rem;
-}
-
-.budget-overview {
-  margin-bottom: 2rem;
-}
-
-.progress-bar-container {
-  width: 100%;
-  background-color: #ecf0f1;
-  border-radius: 8px;
-  height: 24px;
-  overflow: hidden; /* This is key to making the inner bar rounded */
-}
-
-.progress-bar-fill {
-  height: 100%;
-  background-color: #3498db;
-  border-radius: 8px 0 0 8px;
-  transition: width 0.5s ease-in-out;
-}
-
-.progress-bar-label {
-  margin-top: 0.5rem;
-  font-size: 0.9rem;
-  color: #555;
-}
-
-.progress-bar-label strong {
-  font-size: 1.1rem;
-  color: #2c3e50;
-  margin-right: 0.25rem;
-}
-
-.category-overview ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.category-overview li {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem 0;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.category-overview li:last-child {
-  border-bottom: none;
-}
-
-.category-label {
-  display: flex;
-  flex-direction: column;
-}
-
-.category-label span:first-child {
-  font-weight: 600;
-  color: #333;
-}
-.category-label span:last-child {
-  font-size: 0.9rem;
-  color: #777;
-}
-
-.category-percentage {
-  font-size: 1rem;
-  font-weight: 600;
-  color: #3498db;
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
 }

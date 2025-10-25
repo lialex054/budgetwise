@@ -4,7 +4,8 @@ import csv
 import io
 import json
 from datetime import datetime, date
-from typing import List
+from typing import List, Optional
+import calendar
 
 from fastapi import FastAPI, Depends, File, UploadFile, HTTPException
 from sqlalchemy.orm import Session
@@ -192,6 +193,15 @@ async def upload_csv(
             transaction_data = schemas.TransactionCreate(**row)
             merchant_name = transaction_data.merchant_name
 
+            existing_txn = db.query(models.Transaction).filter(
+                models.Transaction.transaction_id == transaction_data.transaction_id
+            ).first()
+
+            if existing_txn:
+                # Skip this row if the transaction ID already exists
+                skipped_rows.append({"row": i, "error": "Duplicate transaction ID found."})
+                continue # Move to the next row in the CSV
+
             # 3. check if merchant exists in map
             category = merchant_map.get(merchant_name)
 
@@ -290,50 +300,101 @@ def set_budget(budget_update: schemas.BudgetUpdate, db: Session = Depends(get_db
 
 # backend/main.py - DEBUGGING VERSION
 @app.get("/dashboard-data/")
-def get_dashboard_data(db: Session = Depends(get_db)):
-    print("--- GET /dashboard-data/ CALLED ---")
-    
-    # 1. Get user's budget
-    settings = None
-    try:
-        settings = db.query(models.UserSettings).first()
-    except Exception as e:
-        print(f"ERROR querying UserSettings: {e}")
+def get_dashboard_data(
+    month: Optional[str] = None,  # Accepts YYYY-MM format
+    db: Session = Depends(get_db)
+):
+    print(f"--- GET /dashboard-data/ CALLED for month: {month} ---") # Updated debug
 
-    if settings:
-        print(f"Found settings. Budget: {settings.monthly_budget}")
+    # --- 1. DETERMINE THE TARGET MONTH ---
+    target_date = None
+    if month:
+        try:
+            target_date = datetime.strptime(month, '%Y-%m').date()
+            print(f"Using provided month: {target_date.strftime('%Y-%m')}")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid month format. Use YYYY-MM.")
     else:
-        print("No settings found in database.")
+        latest_transaction = db.query(models.Transaction).order_by(models.Transaction.date.desc()).first()
+        if latest_transaction:
+            target_date = latest_transaction.date
+            print(f"Found latest transaction month: {target_date.strftime('%Y-%m')}")
+        else:
+            target_date = date.today()
+            print("No transactions found, using current month.")
 
+    start_of_month = target_date.replace(day=1)
+    num_days_in_month = calendar.monthrange(target_date.year, target_date.month)[1]
+    end_of_month = target_date.replace(day=num_days_in_month)
+    today_date = date.today() # Get today's date once
+    today_day_num = today_date.day
+
+    # --- 2. GET USER BUDGET ---
+    settings = db.query(models.UserSettings).first()
     monthly_budget = settings.monthly_budget if settings and settings.monthly_budget is not None else 0.0
-    print(f"Returning monthly_budget: {monthly_budget}")
+    print(f"Monthly budget: {monthly_budget}")
 
-    # 2. Get the start and end of the current month
-    today = date.today()
-    start_of_month = today.replace(day=1)
+    # --- 3. RUN DATABASE QUERIES ---
+    # Base query for transactions in the target month
+    transactions_in_month_query = db.query(models.Transaction).filter(
+        models.Transaction.date >= start_of_month,
+        models.Transaction.date <= end_of_month
+    )
 
-    # 3. Calculate total spend for current month
-    total_spend_result = db.query(func.sum(models.Transaction.amount)).scalar()
-    total_spend = total_spend_result or 0.0
+    # 3a. Calculate Total Spend for the target month
+    total_spend = transactions_in_month_query.with_entities(func.sum(models.Transaction.amount)).scalar() or 0.0
+    print(f"Total spend for {start_of_month.strftime('%Y-%m')}: {total_spend}")
 
-    # 4. Get spending breakdown by category
-    category_spend_result = db.query(
+    # 3b. Get Spending Breakdown for the target month
+    category_spend_result = transactions_in_month_query.with_entities(
         models.Transaction.category,
         func.sum(models.Transaction.amount).label("total")
-    ).group_by(
-        models.Transaction.category
-    ).order_by(
-        func.sum(models.Transaction.amount).desc()
-    ).all()
+    ).group_by(models.Transaction.category).order_by(func.sum(models.Transaction.amount).desc()).all()
 
-    category_spend = [
-        {"category": category, "total": total}
-        for category, total in category_spend_result
+    spending_breakdown = [{"category": category, "total": total} for category, total in category_spend_result]
+    print(f"Spending breakdown: {spending_breakdown}")
+
+    # 3c. Get Top Spending Category
+    top_category = spending_breakdown[0] if spending_breakdown else {"category": "N/A", "total": 0}
+    print(f"Top category: {top_category}")
+
+    # 3d. Get Recent Transactions (limit 5 for the target month)
+    recent_transactions_result = transactions_in_month_query.order_by(models.Transaction.date.desc()).limit(5).all()
+    # Convert recent transactions for JSON compatibility (FastAPI might handle this, but explicit is safer)
+    recent_transactions = [
+        {"id": t.id, "merchant_name": t.merchant_name, "amount": t.amount, "date": t.date.isoformat(), "category": t.category, "transaction_id": t.transaction_id}
+        for t in recent_transactions_result
     ]
+    print(f"Recent transactions: {recent_transactions}")
 
-    return{
-        "monthly_budget": monthly_budget,
-        "total_spend_current_month": total_spend,
-        "category_spend_current_month": category_spend
+
+    # --- 4. CALCULATE METRICS ---
+    target_daily_spend = (monthly_budget / num_days_in_month) if monthly_budget > 0 and num_days_in_month > 0 else 0.0
+
+    # Determine days passed in the target month relative to today
+    if target_date.year == today_date.year and target_date.month == today_date.month:
+        # If target month is the current month, use today's day number
+        days_so_far = today_day_num
+    elif target_date < today_date.replace(day=1):
+        # If target month is in the past, use the total days in that month
+        days_so_far = num_days_in_month
+    else:
+        # If target month is in the future (unlikely but possible), use 0 or 1? Let's use 1 to avoid division by zero.
+        days_so_far = 1
+
+    avg_daily_spend = (total_spend / days_so_far) if days_so_far > 0 else 0.0
+    print(f"Target daily spend: {target_daily_spend}, Avg daily spend: {avg_daily_spend}")
+
+    # --- 5. RETURN THE FULL JSON PAYLOAD ---
+    # Use camelCase keys to match frontend expectations
+    return {
+        "selectedMonth": start_of_month.strftime('%Y-%m'),
+        "monthlyBudget": monthly_budget,
+        "totalSpend": total_spend,
+        "avgDailySpend": avg_daily_spend,
+        "targetDailySpend": target_daily_spend,
+        "topCategory": top_category,
+        "spendingBreakdown": spending_breakdown,
+        "recentTransactions": recent_transactions # Return the converted list
     }
 

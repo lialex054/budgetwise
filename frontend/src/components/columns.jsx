@@ -97,9 +97,12 @@ export const columns = [
 
       // Function to call when "Edit Category" is clicked
       const handleEditClick = () => {
-        // Access the function passed via table.options.meta
-        // Use optional chaining just in case meta or the function is undefined
         table.options.meta?.openEditDialog(transaction);
+      };
+
+      const handleDeleteClick = () => {
+        table.options.meta?.promptDeleteTransaction(transaction);
+        console.log("Delete clicked for transaction:", transaction); // Keep log for now
       };
 
       return (
@@ -117,7 +120,14 @@ export const columns = [
             >
               Edit Category
             </DropdownMenuItem>
-            {/* ... other items ... */}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={handleDeleteClick}
+              // Add Tailwind classes for red text (and on focus/hover)
+              className="text-red-600 focus:text-red-700 focus:bg-red-50"
+            >
+              Delete Transaction
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       )

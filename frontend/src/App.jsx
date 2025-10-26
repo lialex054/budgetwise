@@ -9,7 +9,7 @@ import { SpendingBreakdownChart } from '@/components/SpendingBreakdownChart';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardContent, CardTitle } from '@/components/ui/card';
-import { Wallet, TrendingUp, ShoppingCart, Settings, Upload, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Wallet, TrendingUp, ShoppingCart, Settings, Upload, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { BudgetModal } from '@/components/BudgetModal';
 import Chat from './Chat'; // Assuming Chat.jsx is in src/
 import { DataTable } from '@/components/DataTable'; // Import DataTable
@@ -18,6 +18,21 @@ import { EditCategoryDialog } from '@/components/EditCategoryDialog'; // Import 
 import { BudgetTargetChart } from '@/components/BudgetTargetChart';
 import { cn } from './lib/utils';
 import { Toaster } from "@/components/ui/sonner"
+import { toast } from "sonner";
+import { LandingStep } from '@/components/LandingStep';
+import { UploadStep } from '@/components/UploadStep';
+import { AddTransactionModal } from '@/components/AddTransactionModal';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger, // We aren't using Trigger directly here
+} from "@/components/ui/alert-dialog";
 
 // Helper function to format Date object to "YYYY-MM" string
 const formatDateToYYYYMM = (date) => {
@@ -35,17 +50,21 @@ const parseYYYYMMToDate = (yyyymm) => {
 };
 
 function App() {
+  const initialOnboardingStatus = localStorage.getItem('budgetwise_onboarding_complete') === 'true' ? 'complete' : 'landing';
+  const [onboardingStep, setOnboardingStep] = useState(initialOnboardingStatus); // 'landing', 'upload', 'complete'
+  const [userName, setUserName] = useState('');
   const [dashboardData, setDashboardData] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
   const [file, setFile] = useState(null);
-  const [uploadStatus, setUploadStatus] = useState('');
   const [activeView, setActiveView] = useState('Dashboard');
   const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
-  const fileInputRef = useRef(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState(null);
   const [hasPreviousMonth, setHasPreviousMonth] = useState(false);
   const [hasNextMonth, setHasNextMonth] = useState(false);
+  const [isAddTransactionModalOpen, setIsAddTransactionModalOpen] = useState(false);
+  const [isAlertOpen, setIsAlertOpen] = useState(false);
+  const [transactionToDelete, setTransactionToDelete] = useState(null);
 
   // --- Data Fetching ---
   const fetchDashboardData = async (monthString) => {
@@ -57,6 +76,8 @@ function App() {
 
       if (response.data) {
         setDashboardData(response.data); // Update dashboard data always
+
+        console.log("setDashboardData has been called.");
 
         setHasPreviousMonth(response.data.hasPreviousMonthData ?? false);
         setHasNextMonth(response.data.hasNextMonthData ?? false);
@@ -84,51 +105,10 @@ function App() {
     } catch (error) {
       console.error("Error inside fetchDashboardData function:", error);
       setHasPreviousMonth(false); // Reset on error
-       etHasNextMonth(false);     // Reset on error
+      setHasNextMonth(false);     // Reset on error
     } finally {
              // setIsLoadingDashboard(false);
     }
-  };
-
-  // --- File Upload Handlers ---
-  const handleFileChange = (e) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const selectedFile = e.target.files[0];
-      setFile(selectedFile); // Set file state first
-      handleUpload(selectedFile); // Pass file directly to upload handler
-    } else {
-      setFile(null);
-    }
-    setUploadStatus('');
-    if (fileInputRef.current) {
-        fileInputRef.current.value = ""; // Clear input visually
-    }
-  };
-
-  const handleUpload = async (selectedFile) => {
-    const fileToUpload = selectedFile || file;
-    if (!fileToUpload) {
-      alert('No file selected!');
-      return;
-    }
-    const formData = new FormData();
-    formData.append('file', fileToUpload);
-    try {
-      setUploadStatus('Uploading...');
-      const response = await apiClient.post('/upload/', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setUploadStatus(`Success! Imported: ${response.data.imported_count}. Skipped: ${response.data.skipped_rows.length}.`);
-      setFile(null); // Clear file state
-      fetchDashboardData(null); // Refresh dashboard
-    } catch (error) {
-      console.error('Error uploading file:', error);
-      setUploadStatus('Upload failed. Check console for details.');
-    }
-  };
-
-  const handleUploadButtonClick = () => {
-    fileInputRef.current?.click();
   };
 
   // --- Dialog Handlers ---
@@ -145,6 +125,33 @@ function App() {
     fetchDashboardData(formatDateToYYYYMM(selectedDate)); // Refresh current month
     setIsEditDialogOpen(false);         // Close the modal
     setEditingTransaction(null);     // Clear the editing transaction state
+  };
+
+  const promptDeleteTransaction = (transaction) => {
+    console.log("Prompting delete for transaction:", transaction);
+    setTransactionToDelete(transaction); // Store the transaction to be deleted
+    setIsAlertOpen(true);                // Open the alert dialog
+  };
+
+  // Function to execute the deletion
+  const executeDeleteTransaction = async () => {
+    if (!transactionToDelete) return; // Safety check
+
+    const deleteToastId = toast.loading("Deleting transaction...");
+    try {
+      // Call the DELETE endpoint using the transaction ID
+      await apiClient.delete(`/transactions/${transactionToDelete.id}/`);
+
+      toast.success("Transaction deleted successfully.", { id: deleteToastId });
+      fetchDashboardData(formatDateToYYYYMM(selectedDate)); // Refresh data
+
+    } catch (error) {
+      console.error("Error deleting transaction:", error);
+      toast.error(`Failed to delete transaction. ${error?.response?.data?.detail || 'Please try again.'}`, { id: deleteToastId });
+    } finally {
+      setIsAlertOpen(false);         // Close the alert dialog
+      setTransactionToDelete(null); // Clear the stored transaction
+    }
   };
 
   // --- Navigation Handlers ---
@@ -170,6 +177,23 @@ function App() {
     };
     // --- END Navigation Handlers ---
 
+    const handleNameSubmit = (name) => {
+    if (name.trim()) {
+      const trimmedName = name.trim(); // Store the trimmed name
+      console.log("handleNameSubmit called. Setting userName to:", trimmedName); // <-- ADD LOG
+      setUserName(trimmedName);
+      setOnboardingStep('upload');
+    } else {
+      alert("Please enter your name.");
+    }
+  };
+
+  const handleUploadComplete = () => {
+    setOnboardingStep('complete'); // Move to main app
+    localStorage.setItem('budgetwise_onboarding_complete', 'true'); // Remember completion
+    fetchDashboardData(null); // Fetch initial data for dashboard
+  };
+
   // --- Effects ---
   useEffect(() => {
     fetchDashboardData(null);
@@ -186,10 +210,24 @@ function App() {
         }
     }, [selectedDate]);
 
-  // --- Loading State ---
+  // --- Loading State & Onboarding Logic ---
+  // Determine what to render based on onboarding step
+
+  if (onboardingStep === 'landing') {
+    // We will create LandingStep component next
+    // return <LandingStep onNameSubmit={handleNameSubmit} />;
+    return <LandingStep onNameSubmit={handleNameSubmit} />;
+  }
+
+  if (onboardingStep === 'upload') {
+     // Render the actual UploadStep component, passing props
+     return <UploadStep userName={userName} onUploadComplete={handleUploadComplete} />;
+  }
+
+  // --- Regular Loading State (if onboarding is complete) ---
   if (!dashboardData && activeView === 'Dashboard') {
     return (
-      <Layout activeView={activeView} setActiveView={setActiveView}>
+      <Layout activeView={activeView} setActiveView={setActiveView} userName={userName}>
         <div className="flex items-center justify-center h-full">Loading...</div>
       </Layout>
     );
@@ -197,6 +235,8 @@ function App() {
 
   // --- Prepare Data Variables ---
   let totalSpend, monthlyBudget, avgDailySpend, targetDailySpend, topCategoryName, topCategoryTotal, spendingBreakdown, transactions, budgetIsSet, targetIsSet, spendPercentageOfBudget, dailySpendDiffPercentage, dailySpendStatus, spendingTrendData;
+
+  console.log("App.jsx re-rendering. dashboardData state is:", dashboardData);
 
   // Ensure data preparation only happens if dashboardData exists and view is Dashboard
   if (activeView === 'Dashboard' && dashboardData) {
@@ -207,7 +247,6 @@ function App() {
       topCategoryName = dashboardData?.topCategory?.category ?? "N/A";
       topCategoryTotal = dashboardData?.topCategory?.total ?? 0;
       spendingBreakdown = dashboardData?.spendingBreakdown ?? [];
-      // Use the 'transactions' key from the backend response
       transactions = dashboardData?.transactions ?? [];
       spendingTrendData = dashboardData?.spendingTrendData ?? [];
       budgetIsSet = monthlyBudget > 0;
@@ -223,9 +262,12 @@ function App() {
   }
   // --- END: Prepare Data Variables ---
 
+
+  console.log("App.jsx rendering. Passing userName to Layout:", userName);
+
   // --- Render ---
   return (
-    <Layout activeView={activeView} setActiveView={setActiveView}>
+    <Layout activeView={activeView} setActiveView={setActiveView} userName={userName}>
 
       {/* --- Main Content Header Area --- */}
       <div className="flex justify-between items-center p-4 md:p-8 border-b">
@@ -249,26 +291,16 @@ function App() {
                 </h2>
             )}
         </div>
-
         {/* Right Side: Action Buttons */}
         <div className="flex space-x-2">
-           <Button variant="outline" size="sm" onClick={() => setIsBudgetModalOpen(true)}>
+           <Button variant = "outline" size="sm" onClick={() => setIsBudgetModalOpen(true)}>
              <Settings className="mr-2 h-4 w-4" /> Set Budget
            </Button>
-           <Button variant="outline" size="sm" onClick={handleUploadButtonClick}>
-             <Upload className="mr-2 h-4 w-4" /> Upload Transactions
-           </Button>
-           <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".csv" className="hidden"/>
+           <Button size="sm" onClick={() => setIsAddTransactionModalOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" /> Add Transaction
+            </Button>
         </div>
       </div>
-      {/* Upload Status */}
-      {uploadStatus && (
-         <div className="px-4 md:px-8 pt-2">
-            <p className={`text-sm ${uploadStatus.startsWith('Success') ? 'text-green-600' : 'text-red-600'}`}>{uploadStatus}</p>
-         </div>
-       )}
-      {/* --- END Header Area --- */}
-
       {/* --- CONDITIONAL RENDERING --- */}
       {activeView === 'Dashboard' && dashboardData && (
         <>
@@ -343,7 +375,15 @@ function App() {
             {/* --- Data Table Area --- */}
             {/* Table spans full width (4 columns on large) below charts */}
             <div className="col-span-1 md:col-span-2 lg:col-span-4 mt-6">
-                 <DataTable columns={columns} data={transactions} onRowAction={openEditDialog} />
+                <DataTable
+                     columns={columns}
+                     data={transactions}
+                     // Pass an object containing both handlers
+                     rowActions={{
+                        openEditDialog: openEditDialog,
+                        promptDelete: promptDeleteTransaction // Use a key like 'promptDelete'
+                     }}
+                 />
             </div>
             
           </DashboardLayout>
@@ -360,11 +400,26 @@ function App() {
       <BudgetModal
         isOpen={isBudgetModalOpen}
         onClose={() => setIsBudgetModalOpen(false)}
-        onBudgetSet={() => {
-          // Format the current selectedDate state into "YYYY-MM" string
-          fetchDashboardData(formatDateToYYYYMM(selectedDate));
-          setIsBudgetModalOpen(false);
-        }}
+        onBudgetSet={(newAmount) => { // <-- Accept the new amount from BudgetModal
+        console.log(`BudgetModal onBudgetSet triggered with amount: ${newAmount}`);
+
+        // --- Manually update the dashboardData state ---
+        setDashboardData(prevData => {
+            // If previous data exists, update only the budget
+            if (prevData) {
+                return { ...prevData, monthlyBudget: newAmount };
+            }
+            // If no previous data (unlikely here but safe), return minimal object
+            return { monthlyBudget: newAmount };
+        });
+        // --- End manual update ---
+
+        // Optional: Trigger a full background refetch anyway, just to ensure consistency later
+        // fetchDashboardData(formatDateToYYYYMM(selectedDate));
+
+        setIsBudgetModalOpen(false); // Close modal
+        console.log("Dashboard state updated manually with new budget.");
+      }}
       />
       {/* Render Edit Dialog, passing state and handlers */}
        <EditCategoryDialog
@@ -376,7 +431,41 @@ function App() {
           transaction={editingTransaction} // Pass the transaction being edited
           onCategoryUpdated={handleCategoryUpdate} // Pass the refresh callback
        />
-      {/* --- END MODALS --- */}
+      <AddTransactionModal
+        isOpen={isAddTransactionModalOpen}
+        onClose={() => setIsAddTransactionModalOpen(false)}
+        onSave={() => {
+            // Refresh dashboard after manual add or CSV upload via modal
+            fetchDashboardData(formatDateToYYYYMM(selectedDate));
+            setIsAddTransactionModalOpen(false); // Close modal
+        }}
+      />
+
+      <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the transaction
+              {/* Safely display merchant name if available */}
+              {transactionToDelete?.merchant_name && ` for ${transactionToDelete.merchant_name}`}
+              .
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            {/* Cancel button simply closes the dialog */}
+            <AlertDialogCancel onClick={() => setIsAlertOpen(false)}>Cancel</AlertDialogCancel>
+            {/* Action button calls the delete execution function */}
+            <AlertDialogAction
+              onClick={executeDeleteTransaction}
+              // Optional: Add destructive variant styling if available/configured
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Toaster richColors position="top-center" />
 

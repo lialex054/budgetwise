@@ -3,6 +3,7 @@
 import csv
 import io
 import json
+import uuid
 from datetime import datetime, date, timedelta
 from typing import List, Optional
 import calendar
@@ -358,6 +359,7 @@ def set_budget(budget_update: schemas.BudgetUpdate, db: Session = Depends(get_db
             # If settings exist, update them
             print("Settings found, updating budget...") # Debug line
             settings.monthly_budget = budget_update.amount
+            print(f"Attempting to commit budget: {settings.monthly_budget}")
         
         # This is the crucial part
         db.commit()  # Try to save the changes
@@ -518,3 +520,60 @@ def get_dashboard_data(
         "hasNextMonthData": has_next_month_data
     }
 
+@app.post("/transactions/", response_model=schemas.Transaction, status_code=201) # Use 201 Created status
+def create_transaction(
+    transaction_data: schemas.TransactionManualCreate, # Use the new schema
+    db: Session = Depends(get_db)
+):
+    # Generate a unique transaction ID
+    # Convert UUID to string if needed, or ensure DB/model handles UUID type
+    generated_id = f"MANUAL_{uuid.uuid4()}" # Example: Prefix manual entries
+    print(f"Creating manual transaction with ID: {generated_id}")
+
+    # Create the SQLAlchemy model instance
+    db_transaction = models.Transaction(
+        merchant_name=transaction_data.merchant_name,
+        amount=transaction_data.amount,
+        date=transaction_data.date,
+        category=transaction_data.category,
+        transaction_id=generated_id # Use the generated ID
+    )
+
+    try:
+        db.add(db_transaction)
+        db.commit()
+        db.refresh(db_transaction) # Refresh to get DB-generated ID etc.
+        print("Manual transaction committed successfully.")
+        return db_transaction
+    except Exception as e:
+        db.rollback()
+        print(f"ERROR committing manual transaction: {e}")
+        # Consider specific error checks (like IntegrityError if generated_id wasn't unique)
+        raise HTTPException(status_code=500, detail=f"Failed to save transaction: {e}")
+
+@app.delete("/transactions/{transaction_id}/", status_code=204) # 204 No Content for successful delete
+def delete_transaction(
+    transaction_id: int, # Use the primary key 'id'
+    db: Session = Depends(get_db)
+):
+    print(f"Attempting to delete transaction with ID: {transaction_id}")
+
+    # Find the transaction by its primary key (id)
+    db_transaction = db.query(models.Transaction).filter(models.Transaction.id == transaction_id).first()
+
+    # If transaction doesn't exist, return 404
+    if db_transaction is None:
+        print(f"Transaction ID {transaction_id} not found.")
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    # Delete the transaction
+    try:
+        db.delete(db_transaction)
+        db.commit()
+        print(f"Transaction ID {transaction_id} deleted successfully.")
+        # No body should be returned with a 204 status code
+        return None # Or return Response(status_code=204)
+    except Exception as e:
+        db.rollback()
+        print(f"ERROR deleting transaction ID {transaction_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete transaction: {e}")

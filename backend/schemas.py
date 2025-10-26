@@ -49,3 +49,10 @@ class ChatResponse(BaseModel):
 
 class BudgetUpdate(BaseModel):
     amount: float
+
+    # Schema for manually creating a transaction (no transaction_id needed)
+class TransactionManualCreate(BaseModel):
+    merchant_name: str
+    amount: float
+    date: date
+    category: str # Category is required for manual entry

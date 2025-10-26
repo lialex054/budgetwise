@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input"; // shadcn Input
 import { Label } from "@/components/ui/label"; // shadcn Label
+import { toast } from "sonner";
 
 // Props:
 // isOpen: boolean - Controls if the modal is open
@@ -34,18 +35,26 @@ export function BudgetModal({ isOpen, onClose, onBudgetSet }) {
     const amount = parseFloat(budgetInput);
 
     if (isNaN(amount) || amount <= 0) {
-      alert("Please enter a valid, positive number for your budget.");
+      // --- Use toast for validation error ---
+      toast.error("Please enter a valid, positive number for your budget.");
+      // alert("Please enter a valid, positive number for your budget."); // Removed alert
       return;
     }
 
     setIsSaving(true); // Disable button
     try {
       await apiClient.post('/budget/', { amount: amount });
-      onBudgetSet(); // Trigger data refresh in App.jsx
+
+      const formattedAmount = new Intl.NumberFormat("en-GB", {
+        style: "currency",
+        currency: "GBP",
+      }).format(amount);
+      toast.success(`Budget successfully set to ${formattedAmount}.`);
+      onBudgetSet(amount);
       onClose(); // Close the modal
     } catch (error) {
       console.error("Error setting budget:", error);
-      alert("Failed to set budget. Please try again.");
+      toast.error(`Failed to set budget. ${error?.response?.data?.detail || 'Please try again.'}`);
     } finally {
       setIsSaving(false); // Re-enable button
     }

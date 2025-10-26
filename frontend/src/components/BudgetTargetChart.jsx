@@ -30,7 +30,7 @@ export function BudgetTargetChart({ data }) {
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 min-h-[68px]">
         <CardTitle>Spending Trend vs Target</CardTitle>
       </CardHeader>
-      <CardContent className="flex-1 pt-4"> {/* Match height and add padding */}
+      <CardContent className="flex-1 pt-4">w {/* Match height and add padding */}
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={data} // Use the spendingTrendData array passed as prop

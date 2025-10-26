@@ -56,7 +56,7 @@ function Chat() {
     <MainContainer responsive style={{ height: '80vh' }}> {/* Example height */}
       <ChatContainer>
         <MessageList
-          typingIndicator={isLoading ? <TypingIndicator content="BudgetWise is thinking..." /> : null}
+          typingIndicator={isLoading ? <TypingIndicator content="Felix is thinking..." /> : null}
           // Scroll to bottom when new messages are added
           scrollBehavior="smooth"
         >

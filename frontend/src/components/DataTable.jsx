@@ -22,7 +22,7 @@ import {
 // - columns: The column definition array (from columns.jsx)
 // - data: The array of transaction objects
 // - onRowAction: (Optional) Function to pass down for actions like opening edit dialog
-export function DataTable({ columns, data, onRowAction }) {
+export function DataTable({ columns, data, rowActions }) {
 
   console.log("DataTable received data:", data);
 
@@ -41,12 +41,22 @@ export function DataTable({ columns, data, onRowAction }) {
     // Pass down the onRowAction function via meta for the columns to access
     meta: {
         openEditDialog: (rowData) => {
-            if (onRowAction) {
-                onRowAction(rowData); // Call the function passed from App.jsx
+            // Call the function from the passed object
+            if (rowActions?.openEditDialog) {
+                rowActions.openEditDialog(rowData);
             } else {
-                console.warn("onRowAction prop not provided to DataTable");
+                console.warn("rowActions.openEditDialog prop not provided to DataTable");
             }
         },
+        // Add the delete prompt function to meta
+        promptDeleteTransaction: (rowData) => {
+            // Call the function from the passed object
+             if (rowActions?.promptDelete) { // Use the key we defined in App.jsx ('promptDelete')
+                rowActions.promptDelete(rowData);
+            } else {
+                console.warn("rowActions.promptDelete prop not provided to DataTable");
+            }
+        }
     },
   });
   console.log("Table rows calculated:", table.getRowModel().rows);

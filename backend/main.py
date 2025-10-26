@@ -167,104 +167,178 @@ def get_transactions(db: Session = Depends(get_db)):
 async def upload_csv(
     file: UploadFile = File(...), db: Session = Depends(get_db)
 ):
-    
-    # 1. Load merchant map from disk
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="Invalid file type. Please upload a CSV.")
+
+    # 1. Load the merchant map
     try:
-        with open(MERCHANT_MAP_FILE, "r") as f:
+        with open(MERCHANT_MAP_FILE, 'r', encoding='utf-8') as f: # Added encoding
             merchant_map = json.load(f)
     except FileNotFoundError:
-        merchant_map = {} # start with empty map if file doesn't exist
+        merchant_map = {}
+    except json.JSONDecodeError:
+        print(f"Warning: Could not decode {MERCHANT_MAP_FILE}. Starting with an empty map.")
+        merchant_map = {} # Handle corrupted JSON
 
-    # 2. Initialise flag
+    # 2. Initialize variables
     has_map_changed = False
-
-    # Read file content directly from memory
-    contents = await file.read()
-    file_data = io.StringIO(contents.decode("utf-8"))
-    csv_reader = csv.DictReader(file_data)
-
-    valid_transactions = []
+    unknown_merchants_set = set() # Use a set for automatic deduplication
+    valid_transactions = [] # Store SQLAlchemy model instances
     skipped_rows = []
 
-    # Iterate through each row of our CSV
-    for i, row in enumerate(csv_reader, start=2): # Start at 2 to account for header
+    # 3. First Pass - Read CSV and Identify Unknown Merchants
+    contents = await file.read()
+    try:
+        file_data = io.StringIO(contents.decode('utf-8')) # Ensure UTF-8 decoding
+        csv_reader = csv.DictReader(file_data)
+    except UnicodeDecodeError:
+         raise HTTPException(status_code=400, detail="Invalid file encoding. Please upload a UTF-8 encoded CSV.")
+
+    # Store temporary transaction data along with the object for later update
+    temp_transaction_data = []
+
+    for i, row in enumerate(csv_reader, start=2):
         try:
-            # pydantic handles data parsing from string
             transaction_data = schemas.TransactionCreate(**row)
             merchant_name = transaction_data.merchant_name
 
+            # Check for duplicates before processing
             existing_txn = db.query(models.Transaction).filter(
                 models.Transaction.transaction_id == transaction_data.transaction_id
             ).first()
-
             if existing_txn:
-                # Skip this row if the transaction ID already exists
                 skipped_rows.append({"row": i, "error": "Duplicate transaction ID found."})
-                continue # Move to the next row in the CSV
+                continue
 
-            # 3. check if merchant exists in map
+            # Check known merchants map
             category = merchant_map.get(merchant_name)
 
-            # 4. If not in map, call the LLM
             if category is None:
+                # Add to set for batch processing later
+                unknown_merchants_set.add(merchant_name)
+                # Temporarily assign 'Uncategorized'
+                current_category = 'Uncategorized'
+            else:
+                current_category = category
 
-                # 4a. Construct a strict prompt
-                prompt = f"""
-                You are a categorization assistant. You MUST choose one category
-                from the following list: {CATEGORY_OPTIONS}.
-
-                What is the best category for the merchant: "{merchant_name}"?
-
-                Respond with ONLY the category name.
-                """
-
-                # 4b. Call the LLM
-                model = genai.GenerativeModel("gemini-2.5-flash-lite")
-                response = await model.generate_content_async(prompt)
-
-                # 4c. Clean and validate response
-                llm_category = response.text.strip()
-
-                # Check if response is valid
-                if llm_category in CATEGORY_OPTIONS:
-                    category = llm_category
-                else:
-                    #Fallback if LLM gives invalid response
-                    category = "Uncategorized"
-
-
-                # 4d. Update merchant map
-                merchant_map[merchant_name] = category
-                has_map_changed = True
-
-            # 5. Create the transaction in DB with new category
-            # Pass new category in, overriding the model's default
+            # Create the DB object with the determined category
             db_transaction = models.Transaction(
-                **transaction_data.dict(), 
-                category=category
+                **transaction_data.dict(),
+                category=current_category
             )
             valid_transactions.append(db_transaction)
+            # Store reference if category might need update later
+            if current_category == 'Uncategorized':
+                temp_transaction_data.append({"merchant": merchant_name, "transaction_obj": db_transaction})
+
 
         except ValidationError as e:
-            # if row is malformed, log and continue
-            skipped_rows.append({"row": i , "errors": e.errors()})
+            skipped_rows.append({"row": i, "error": f"Validation Error: {e.errors()}"})
         except Exception as e:
-            # catch any other unexpected errors
-            skipped_rows.append({"row": i , "errors": str(e)})
+            # Catch unexpected errors during row processing
+            skipped_rows.append({"row": i, "error": f"Unexpected Error: {str(e)}"})
+            print(f"Error processing row {i}: {e}") # Log unexpected error
 
-    # Add all valid transaction to the DB
+    # 4. Batch LLM Call (if unknowns were found)
+    unknown_merchants_list = list(unknown_merchants_set)
+    newly_categorized = {} # Store results from LLM
+
+    if unknown_merchants_list:
+        print(f"Found {len(unknown_merchants_list)} unknown merchants. Querying LLM...")
+        prompt = f"""
+        You are a categorization assistant. You MUST choose one category for each merchant
+        from the following list: {CATEGORY_OPTIONS}.
+
+        Categorize these merchants: {', '.join(unknown_merchants_list)}
+
+        Respond ONLY with a valid JSON object mapping each merchant name (string)
+        to its chosen category (string). Example: {{"Merchant A": "Shopping", "Merchant B": "Groceries"}}
+        Ensure the entire output is ONLY the JSON object, nothing before or after.
+        """
+        try:
+            model = genai.GenerativeModel("gemini-2.5-flash-lite") # Or your chosen model
+            response = await model.generate_content_async(prompt)
+
+            # Attempt to parse the LLM response as JSON
+            try:
+                # Clean potential markdown fences (```json ... ```)
+                cleaned_response = response.text.strip().replace('```json', '').replace('```', '').strip()
+                llm_results = json.loads(cleaned_response)
+                if isinstance(llm_results, dict):
+                    newly_categorized = llm_results
+                    print("LLM categorization successful.")
+                else:
+                    print("LLM response was not a JSON object.")
+
+            except json.JSONDecodeError as json_err:
+                print(f"Error decoding LLM JSON response: {json_err}")
+                print(f"LLM Raw Response: {response.text}")
+            except Exception as parse_err:
+                 print(f"Unexpected error parsing LLM response: {parse_err}")
+                 print(f"LLM Raw Response: {response.text}")
+
+
+        except Exception as e:
+            print(f"Error calling Generative AI: {e}")
+            # If LLM fails, unknowns remain 'Uncategorized'
+
+        # Update the main merchant map with validated results
+        for merchant, llm_category in newly_categorized.items():
+            if merchant in unknown_merchants_set and isinstance(llm_category, str):
+                cleaned_category = llm_category.strip().capitalize() # Basic cleaning
+                if cleaned_category in CATEGORY_OPTIONS:
+                    if merchant_map.get(merchant) != cleaned_category:
+                        merchant_map[merchant] = cleaned_category
+                        has_map_changed = True
+                        print(f"Mapped '{merchant}' to '{cleaned_category}'")
+                else:
+                     print(f"Warning: LLM returned invalid category '{llm_category}' for '{merchant}'. Keeping Uncategorized.")
+            else:
+                print(f"Warning: LLM returned unexpected data for '{merchant}': {llm_category}")
+
+
+    # 5. Update Transaction Categories in Session (if needed)
+    print("Updating categories for transactions in session...")
+    for item in temp_transaction_data:
+        merchant = item["merchant"]
+        transaction_obj = item["transaction_obj"]
+        # Check if the merchant was newly categorized OR if it was already in the map initially but marked Uncategorized temporarily
+        if merchant in merchant_map and transaction_obj.category == 'Uncategorized':
+             updated_category = merchant_map[merchant]
+             if updated_category != 'Uncategorized':
+                transaction_obj.category = updated_category
+                print(f"Updated transaction {transaction_obj.transaction_id} category to '{updated_category}'")
+
+
+    # 6. Add valid transactions to the session and commit
     if valid_transactions:
-        db.add_all(valid_transactions)
-        db.commit()
+        try:
+            db.add_all(valid_transactions)
+            db.commit()
+            print("Transactions committed to database.")
+        except Exception as e:
+            db.rollback()
+            print(f"Error committing transactions: {e}. Rolling back.")
+            # Clear valid_transactions as they failed commit
+            valid_transactions = []
+            # Add a general error message (optional)
+            # skipped_rows.append({"row": "N/A", "error": f"Database commit failed: {e}"})
+            # Re-raise or handle as appropriate, maybe return 500
+            raise HTTPException(status_code=500, detail=f"Database commit failed: {e}")
 
-    # 6. Save the updated map back to disk
+    # 7. Save the updated merchant map if changes were made
     if has_map_changed:
-        with open(MERCHANT_MAP_FILE, "w") as f:
-            json.dump(merchant_map, f, indent=2)
+        print(f"Saving updated {MERCHANT_MAP_FILE}...")
+        try:
+            with open(MERCHANT_MAP_FILE, 'w', encoding='utf-8') as f:
+                json.dump(merchant_map, f, indent=2, ensure_ascii=False) # Added encoding and ensure_ascii=False
+        except IOError as e:
+            print(f"Error saving merchant map file: {e}") # Log error but don't crash upload
 
+    # 8. Return final response
     return {
-        "message" : "CSV processed.",
-        "imported_count": len(valid_transactions),
+        "message": "CSV processed.",
+        "imported_count": len(valid_transactions), # Count successful commits
         "skipped_rows": skipped_rows,
     }
 

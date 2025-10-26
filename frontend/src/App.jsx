@@ -1,6 +1,7 @@
 // frontend/src/App.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import apiClient from './api';
+import { Layout } from '@/components/Layout';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { MonthSelector } from '@/components/MonthSelector';
 import { MetricCard } from '@/components/MetricCard';
@@ -9,52 +10,75 @@ import { RecentTransactions } from '@/components/RecentTransactions';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardContent, CardTitle } from '@/components/ui/card';
-import { Wallet, TrendingUp, ShoppingCart } from 'lucide-react';
+import { Wallet, TrendingUp, ShoppingCart, Settings, Upload } from 'lucide-react';
+import { BudgetModal } from '@/components/BudgetModal';
+import Chat from './Chat';
 
 function App() {
   const [dashboardData, setDashboardData] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [file, setFile] = useState(null);
   const [uploadStatus, setUploadStatus] = useState('');
+  const [activeView, setActiveView] = useState('Dashboard');
+  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+  const fileInputRef = useRef(null);
 
+  // --- Data Fetching ---
   const fetchDashboardData = async (month) => {
     try {
       const params = month ? { month: month } : {};
+      console.log("Fetching dashboard data with params:", params); // Keep logs for now
       const response = await apiClient.get('/dashboard-data/', { params });
-      setDashboardData(response.data);
-      setSelectedMonth(response.data.selectedMonth);
+      console.log("API Response received:", response);
+      console.log("API Response data:", response.data);
+
+      if (response.data) {
+        setDashboardData(response.data);
+        setSelectedMonth(response.data.selectedMonth);
+        console.log("State updated with dashboard data.");
+      } else {
+        console.error("Dashboard data received from API was null or undefined.");
+      }
+
     } catch (error) {
-      console.error("Error fetching dashboard data:", error);
+      console.error("Error inside fetchDashboardData function:", error);
     }
   };
 
+  // --- File Upload Handlers ---
   const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
-    setUploadStatus(''); // Clear previous status
-  };
+    // Ensure files exist and select the first one
+    if (e.target.files && e.target.files.length > 0) {
+      setFile(e.target.files[0]);
+      handleUpload(e.target.files[0]);
+    } else {
+      setFile(null); // Clear if no file selected
+    }
+    setUploadStatus('');
+    // Clear the input value so the same file can be selected again
+    if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+    };
+  }
 
-  // Handle file upload
-  const handleUpload = async () => {
-    if (!file) {
-      alert('Please select a file first!');
+  // Modified handleUpload to accept the file directly
+  const handleUpload = async (selectedFile) => {
+    // Check the passed file argument first, then the state as fallback
+    const fileToUpload = selectedFile || file;
+    if (!fileToUpload) {
+      // This alert shouldn't trigger if called from handleFileChange
+      alert('No file selected!');
       return;
     }
-
     const formData = new FormData();
-    formData.append('file', file);
-
+    formData.append('file', fileToUpload);
     try {
       setUploadStatus('Uploading...');
-      const response = await apiClient.post('/upload/', formData, { // Ensure trailing slash
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+      const response = await apiClient.post('/upload/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
       setUploadStatus(`Success! Imported: ${response.data.imported_count}. Skipped: ${response.data.skipped_rows.length}.`);
-      setFile(null); // Clear the selected file
-      // If you plan to re-add the transaction table, fetch transactions here too:
-      // fetchTransactions();
-      // Refresh the dashboard data with the latest month's info
+      setFile(null); // Clear the file state
       fetchDashboardData(null);
     } catch (error) {
       console.error('Error uploading file:', error);
@@ -62,136 +86,144 @@ function App() {
     }
   };
 
-  useEffect(() => {
-    fetchDashboardData(null);
-  }, []);
+  const handleUploadButtonClick = () => {
+    fileInputRef.current?.click(); // Safely trigger click if ref exists
+  };
 
+  // --- Effects ---
+  useEffect(() => {
+    // Fetch data for the most recent month when the component mounts
+    fetchDashboardData(null);
+  }, []); // Empty dependency array ensures this runs only once on mount
+
+  // --- Loading State ---
   if (!dashboardData) {
-    return <div className="flex items-center justify-center h-screen">Loading...</div>;
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-full">
+          Loading...
+        </div>
+      </Layout>
+    );
   }
 
-  // --- CORRECTED: Prepare Data Variables ---
-  // Safely extract data with defaults, matching backend's camelCase JSON keys
-  const totalSpend = dashboardData?.totalSpend ?? 0;
-  const monthlyBudget = dashboardData?.monthlyBudget ?? 0;
-  const avgDailySpend = dashboardData?.avgDailySpend ?? 0;
-  const targetDailySpend = dashboardData?.targetDailySpend ?? 0;
-  const topCategoryName = dashboardData?.topCategory?.category ?? "N/A";
-  const topCategoryTotal = dashboardData?.topCategory?.total ?? 0;
-  // Use the correct 'spendingBreakdown' key from the backend JSON
-  const spendingBreakdown = dashboardData?.spendingBreakdown ?? [];
-
-  // Calculate percentages safely (These calculations remain the same)
-  const budgetIsSet = monthlyBudget > 0;
-  const targetIsSet = targetDailySpend > 0; // Check if target > 0
-
-  const spendPercentageOfBudget = budgetIsSet
-    ? Math.min((totalSpend / monthlyBudget) * 100, 100)
-    : 0;
-
-  const dailySpendDiffPercentage = budgetIsSet && targetIsSet
-    // Prevent division by zero if targetDailySpend is 0
-    ? Math.abs(((avgDailySpend / (targetDailySpend || 1)) - 1) * 100)
-    : 0;
-  const dailySpendStatus = avgDailySpend > targetDailySpend ? 'over' : 'under';
-  const recentTransactions = dashboardData?.recentTransactions ?? [];
+  // --- Prepare Data Variables (Only needed for Dashboard view) ---
+  let totalSpend, monthlyBudget, avgDailySpend, targetDailySpend, topCategoryName, topCategoryTotal, spendingBreakdown, recentTransactions, budgetIsSet, targetIsSet, spendPercentageOfBudget, dailySpendDiffPercentage, dailySpendStatus;
+  if (activeView === 'Dashboard' && dashboardData) {
+      totalSpend = dashboardData?.totalSpend ?? 0;
+      monthlyBudget = dashboardData?.monthlyBudget ?? 0;
+      avgDailySpend = dashboardData?.avgDailySpend ?? 0;
+      targetDailySpend = dashboardData?.targetDailySpend ?? 0;
+      topCategoryName = dashboardData?.topCategory?.category ?? "N/A";
+      topCategoryTotal = dashboardData?.topCategory?.total ?? 0;
+      spendingBreakdown = dashboardData?.spendingBreakdown ?? [];
+      recentTransactions = dashboardData?.recentTransactions ?? [];
+      budgetIsSet = monthlyBudget > 0;
+      targetIsSet = targetDailySpend > 0;
+      spendPercentageOfBudget = budgetIsSet ? Math.min((totalSpend / monthlyBudget) * 100, 100) : 0;
+      dailySpendDiffPercentage = budgetIsSet && targetIsSet ? Math.abs(((avgDailySpend / (targetDailySpend || 1)) - 1) * 100) : 0;
+      dailySpendStatus = avgDailySpend > targetDailySpend ? 'over' : 'under';
+  }
   // --- END: Prepare Data Variables ---
 
-  console.log("Data being passed to cards:", { totalSpend, monthlyBudget, avgDailySpend, targetDailySpend, topCategoryName, topCategoryTotal });
-  console.log("Data being passed to chart:", spendingBreakdown);
-
+  // --- Render ---
   return (
-    <div className="min-h-screen bg-slate-50">
-      <DashboardLayout>
-        <MonthSelector selectedMonth={selectedMonth} />
+    // Pass navigation state down to Layout
+    <Layout activeView={activeView} setActiveView={setActiveView}>
 
-        {/* --- REVISED: Use Prepared Variables --- */}
-
-        {/* Card 1: Total Spending */}
-        <MetricCard
-          title="Total Spending"
-          // Use the clean variable
-          value={`£${totalSpend.toFixed(2)}`}
-          icon={Wallet}
-          footer={
-            budgetIsSet ? (
-              <>
-                <Progress
-                  // Use the calculated percentage
-                  value={spendPercentageOfBudget}
-                  className="h-2 mt-2"
-                />
-                <span className="text-xs text-slate-500 mt-1 block">
-                  {/* Use calculated percentage and clean variables */}
-                  {spendPercentageOfBudget.toFixed(0)}%
-                  of £{monthlyBudget.toFixed(0)} budget used
-                </span>
-              </>
-            ) : (
-              "Budget not set"
-            )
-          }
-          className="md:col-span-2 lg:col-span-1"
-        />
-
-        {/* Card 2: Spend per day */}
-        <MetricCard
-          title="Spend per day"
-          // Use the clean variable
-          value={`£${avgDailySpend.toFixed(2)}`}
-          icon={TrendingUp}
-          footer={
-            budgetIsSet && targetIsSet ? (
-              // Use calculated percentage, status, and clean variable
-              `${dailySpendDiffPercentage.toFixed(0)}% ${dailySpendStatus} target (£${targetDailySpend.toFixed(2)}/day)`
-            ) : (
-              "Target N/A"
-            )
-          }
-        />
-
-        {/* Card 3: Top Spending Category */}
-        <MetricCard
-          title="Top Spending Category"
-          // Use clean variables
-          value={topCategoryName}
-          icon={ShoppingCart}
-          footer={`£${topCategoryTotal.toFixed(2)} spent`}
-        />
-        {/* --- END: REVISED --- */}
-
-
-        {/* Placeholders for Part 4 */}
-        <SpendingBreakdownChart data={spendingBreakdown} />
-
-        <RecentTransactions transactions={recentTransactions} />
-
-      </DashboardLayout>
-
-      <div className="p-4 md:p-8"> {/* Add padding */}
-        <Card> {/* Wrap in a shadcn Card for consistent styling */}
-          <CardHeader>
-            <CardTitle>Upload Transactions</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center space-x-2">
-              <input
-                 type="file"
-                 onChange={handleFileChange}
-                 accept=".csv"
-                 className="flex h-10 w-full rounded-md border border-input bg-white px-3 py-2 text-sm text-gray-400 file:border-0 file:bg-transparent file:text-gray-600 file:text-sm file:font-medium" // Basic Tailwind styling for input
-              />
-              <Button onClick={handleUpload} disabled={!file || uploadStatus === 'Uploading...'}>
-                {uploadStatus === 'Uploading...' ? 'Uploading...' : 'Upload'}
-              </Button>
-            </div>
-            {uploadStatus && <p className={`mt-2 text-sm ${uploadStatus.startsWith('Success') ? 'text-green-600' : 'text-red-600'}`}>{uploadStatus}</p>}
-          </CardContent>
-        </Card>
+      {/* --- Main Content Header Area (Buttons) --- */}
+      <div className="flex justify-between items-center p-4 md:p-8 border-b">
+        {/* We can refine the title display later */}
+        <h2 className="text-xl font-semibold">
+           {activeView === 'Dashboard' ? 'Dashboard Overview' :
+            activeView === 'Chat' ? 'Chat Assistant' :
+            activeView === 'Settings' ? 'Settings' : ''}
+        </h2>
+        <div className="flex space-x-2">
+           {/* --- ADD SET BUDGET BUTTON --- */}
+           <Button variant="outline" size="sm" onClick={() => setIsBudgetModalOpen(true)}>
+             <Settings className="mr-2 h-4 w-4" /> Set Budget
+           </Button>
+            {/* --- ADD UPLOAD BUTTON --- */}
+           <Button variant="outline" size="sm" onClick={handleUploadButtonClick}>
+             <Upload className="mr-2 h-4 w-4" /> Upload Transactions
+           </Button>
+           <input
+             type="file"
+             ref={fileInputRef}
+             onChange={handleFileChange}
+             accept=".csv"
+             className="hidden" // Hide the default input element
+           />
+           {/* Upload button will go here next */}
+        </div>
       </div>
+      {/* Display Upload Status below header */}
+      {uploadStatus && (
+         <div className="px-4 md:px-8 pt-2">
+            <p className={`text-sm ${uploadStatus.startsWith('Success') ? 'text-green-600' : 'text-red-600'}`}>{uploadStatus}</p>
+         </div>
+       )}
+      {/* --- END Header Area --- */}
 
-      {/* Other components (Budget, Chat, Upload, Table) can go here */}
-    </div>
+      {/* --- CONDITIONAL RENDERING --- */}
+      {activeView === 'Dashboard' && dashboardData && (
+        <>
+          {/* Dashboard Grid */}
+          <DashboardLayout>
+            <MonthSelector selectedMonth={selectedMonth} />
+            <MetricCard /* Total Spending */
+              title="Total Spending" value={`£${totalSpend.toFixed(2)}`} icon={Wallet}
+              footer={ budgetIsSet ? (<> <Progress value={spendPercentageOfBudget} className="h-2 mt-2" /> <span className="text-xs text-slate-500 mt-1 block"> {spendPercentageOfBudget.toFixed(0)}% of £{monthlyBudget.toFixed(0)} budget used </span> </>) : ("Budget not set") }
+              className="md:col-span-2 lg:col-span-1"
+            />
+            <MetricCard /* Spend per day */
+              title="Spend per day" value={`£${avgDailySpend.toFixed(2)}`} icon={TrendingUp}
+              footer={ budgetIsSet && targetIsSet ? (`${dailySpendDiffPercentage.toFixed(0)}% ${dailySpendStatus} target (£${targetDailySpend.toFixed(2)}/day)`) : ("Target N/A") }
+            />
+            <MetricCard /* Top Category */
+              title="Top Spending Category" value={topCategoryName} icon={ShoppingCart}
+              footer={`£${topCategoryTotal.toFixed(2)} spent`}
+            />
+            <SpendingBreakdownChart data={spendingBreakdown} />
+            <RecentTransactions transactions={recentTransactions} />
+          </DashboardLayout>
+        </>
+      )}
+
+      {/* Render Chat component when activeView is 'Chat' */}
+      {/* {activeView === 'Chat' && <Chat />} */}
+       {activeView === 'Chat' && (
+        // Remove the old placeholder div
+        // <div className="p-4 md:p-8"> ... </div>
+
+        // Add the Chat component, wrapped in padding if needed
+        <div className="p-4 md:p-8">
+           <Chat />
+        </div>
+      )}
+
+
+      {/* Render Settings placeholder when activeView is 'Settings' */}
+      {activeView === 'Settings' && (
+        <div className="p-4 md:p-8"> {/* Example placeholder */}
+          <h2 className="text-xl font-semibold mb-4">Settings View</h2>
+          <p>Settings component will go here.</p>
+        </div>
+      )}
+      {/* ------------------------------- */}
+
+      {/* --- RENDER THE MODAL (controlled by state) --- */}
+      <BudgetModal
+        isOpen={isBudgetModalOpen}
+        onClose={() => setIsBudgetModalOpen(false)} // Function to close the modal
+        onBudgetSet={() => {
+          fetchDashboardData(selectedMonth); // Refresh data after setting budget
+          setIsBudgetModalOpen(false); // Close modal on success
+        }}
+      />
+      {/* ----------------------------------------------- */}
+    </Layout>
   );
 }
 

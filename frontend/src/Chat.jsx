@@ -1,63 +1,108 @@
 // frontend/src/Chat.jsx
-
 import React, { useState } from 'react';
-import apiClient from './api'; // API helper
+import apiClient from './api';
+import ReactMarkdown from 'react-markdown'; // <-- Import react-markdown
+
+// Import Chat UI Kit styles
+import '@chatscope/chat-ui-kit-styles/dist/default/styles.min.css';
+// Import Chat UI Kit components
+import {
+  MainContainer,
+  ChatContainer,
+  MessageList,
+  Message,
+  MessageInput,
+  TypingIndicator,
+} from '@chatscope/chat-ui-kit-react';
 
 function Chat() {
-    const [input, setInput] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
-    const [messages, setMessages] = useState([
-        {
-            role: 'ai',
-            content: "Hello! I'm BudgetWise. Ask me where you have spent the most money."
-        }
-    ]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [messages, setMessages] = useState([
+    {
+      role: 'ai',
+      content: "Hello! I'm BudgetWise. Ask me where you have spent the most money."
+    }
+  ]);
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        if (!input.trim()) return;
+  const handleSubmit = async (messageText) => {
+    if (!messageText.trim()) return;
 
-        const userMessage = { role: 'user', content: input };
-        setMessages(prev => [...prev, userMessage]);
-        setInput('');
-        setIsLoading(true);
+    const userMessage = { role: 'user', content: messageText };
+    setMessages(prev => [...prev, userMessage]);
+    setIsLoading(true);
 
-        try {
-            // Send the user's question to the backend
-            const response = await apiClient.post('/chat', {
-                question: input
-            });
+    try {
+      const response = await apiClient.post('/chat/', {
+        question: messageText
+      });
 
-            // add AI response in chat
-            const aiMessage = { role: "ai", content: response.data.response};
-            setMessages(prev => [...prev, aiMessage]);
-        } finally {
-            setIsLoading(false);
-        }
-    };
+      const aiMessage = { role: 'ai', content: response.data.response };
+      setMessages(prev => [...prev, aiMessage]);
 
-    return (
-        <div className="chat-container">
-            <div className="chat-messages">
-                {messages.map((msg, index) => (
-                    <div key={index} className={`chat-message ${msg.role}`}>
-                        <p>{msg.content}</p>
-                    </div>
-                ))}
-                {isLoading && <div className="message ai">...<p>...</p></div>}
-            </div>
-            <form className="chat-input-form" onSubmit={handleSubmit}>
-                <input
-                    type="text"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    placeholder="Ask me about your spending..."
-                    disabled={isLoading}
-                />
-                <button type="submit" disabled={isLoading}>Send</button>
-            </form>
-        </div>
-    );
+    } catch (error) {
+      console.error("Error communicating with chat API:", error);
+      const errorMessage = { role: 'ai', content: "Sorry, I encountered an error. Please try again." };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    // --- CHANGE 1: Remove outer div, rely on Chatscope layout ---
+    // The parent container in App.jsx (e.g., <div className="p-4 md:p-8">)
+    // will now determine the chat component's size and position.
+    // Give MainContainer height to fill its parent or a specific height.
+    <MainContainer responsive style={{ height: '80vh' }}> {/* Example height */}
+      <ChatContainer>
+        <MessageList
+          typingIndicator={isLoading ? <TypingIndicator content="BudgetWise is thinking..." /> : null}
+          // Scroll to bottom when new messages are added
+          scrollBehavior="smooth"
+        >
+          {messages.map((msg, index) => (
+            <Message
+              key={index}
+              model={{
+                // Keep model for direction, sender, position
+                sender: msg.role,
+                direction: msg.role === 'user' ? 'outgoing' : 'incoming',
+                position: 'single',
+              }}
+            >
+              {/* --- CHANGE 2: Render content as children w/ Markdown --- */}
+              {/* Use Message.HtmlContent for user messages (plain text) */}
+              {/* Use ReactMarkdown for AI messages */}
+              {msg.role === 'user' ? (
+                 <Message.TextContent text={msg.content} />
+               ) : (
+                // Use custom content for markdown rendering
+                <Message.CustomContent>
+                  <ReactMarkdown
+                    components={{
+                      // Optional: Customize how elements like bold are rendered if needed
+                      // strong: ({node, ...props}) => <strong style={{color: 'blue'}} {...props} />
+                    }}
+                  >
+                    {msg.content}
+                  </ReactMarkdown>
+                </Message.CustomContent>
+              )}
+              {/* -------------------------------------------------------- */}
+            </Message>
+          ))}
+        </MessageList>
+        <MessageInput
+          placeholder="Ask about your spending..."
+          onSend={handleSubmit}
+          attachButton={false}
+          disabled={isLoading}
+          // Automatically clear input after sending
+          sendOnReturnDisabled={false} // Allow sending with Enter key
+        />
+      </ChatContainer>
+    </MainContainer>
+  );
 }
 
 export default Chat;

@@ -4,8 +4,10 @@ import csv
 import io
 import json
 import uuid
+import os
 from datetime import datetime, date, timedelta
 from typing import List, Optional
+from dotenv import load_dotenv
 import calendar
 
 from fastapi import FastAPI, Depends, File, UploadFile, HTTPException
@@ -51,7 +53,26 @@ app.add_middleware(
 )
 
 # --- API KEY ---
-GEMINI_API_KEY = "AIzaSyCpM_uC_F4MLuObZ85yJRu6Y8DvLazbfrE"
+
+load_dotenv()
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if not GEMINI_API_KEY:
+    # Option 1: Raise an error if the key is missing (safer for production)
+    raise ValueError("Missing GEMINI_API_KEY environment variable.")
+    # Option 2: Log a warning and potentially disable AI features (for local dev)
+    # print("WARNING: Missing GEMINI_API_KEY environment variable. AI features may fail.")
+
+# Configure the genai library only if the key was found
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+else:
+     # Handle the case where the key is missing, e.g., disable AI endpoints
+     # or make them return an error message immediately.
+     # For now, we'll let it potentially fail later if the key isn't set.
+     pass
+
 genai.configure(api_key=GEMINI_API_KEY)
 
 # Path for our merchant map

@@ -1,0 +1,16 @@
+# .gitignore in budgetwise/ root
+
+# Python virtual environment
+backend/venv/
+
+# Database file
+backend/budget.db
+
+# Secret environment variables
+backend/.env
+
+# Node modules
+frontend/node_modules/
+
+# Build output
+frontend/dist/

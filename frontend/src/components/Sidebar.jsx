@@ -9,7 +9,7 @@ export function Sidebar({ activeView, setActiveView }) {
   // REMOVED local state: const [activeItem, setActiveItem] = React.useState('Dashboard');
 
   return (
-    <aside className="flex flex-col w-64 h-screen p-6 bg-slate-50 border-r border-slate-200">
+    <aside className="sticky top-0 flex flex-col w-64 h-screen p-6 bg-slate-50 border-r border-slate-200">
       {/* 1. Logo/Brand Section (No change) */}
       <div className="flex items-center gap-3 mb-8">
         <CircleDollarSign className="w-7 h-7 text-blue-600" />
@@ -31,11 +31,6 @@ export function Sidebar({ activeView, setActiveView }) {
           text="Chat: Felix" // You might want to rename this later
           active={activeView === 'Chat'}
           onClick={() => setActiveView('Chat')}
-        />
-        <SidebarItem
-          text="Settings"
-          active={activeView === 'Settings'}
-          onClick={() => setActiveView('Settings')}
         />
       </nav>
 

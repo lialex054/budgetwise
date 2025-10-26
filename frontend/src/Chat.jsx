@@ -20,7 +20,7 @@ function Chat() {
   const [messages, setMessages] = useState([
     {
       role: 'ai',
-      content: "Hello! I'm BudgetWise. Ask me where you have spent the most money."
+      content: "Hello! I'm Felix. Ask me where you have spent the most money."
     }
   ]);
 

@@ -1,24 +1,53 @@
+// frontend/src/components/MonthSelector.jsx
 import React from 'react';
-import { Calendar } from 'lucide-react'; // Import the icon
+import { Button } from '@/components/ui/button'; // Import Button
+import { ChevronLeft, ChevronRight } from 'lucide-react'; // Import Icons
 
-export function MonthSelector({ selectedMonth }) {
-  // Format 'YYYY-MM' (e.g., '2025-10') into 'Month YYYY' (e.g., 'October 2025')
-  // We add '-02' to ensure it parses correctly as a date regardless of timezone issues
-  const formattedDate = selectedMonth
-    ? new Date(`${selectedMonth}-02`).toLocaleString('default', {
+// Receive Date object and navigation functions
+export function MonthSelector({ selectedDate, goToPreviousMonth, goToNextMonth, hasPreviousMonth, hasNextMonth }) {
+
+  // Format the Date object prop (e.g., 'October 2025')
+  const formattedDate = selectedDate instanceof Date && !isNaN(selectedDate)
+    ? selectedDate.toLocaleString('default', {
         month: 'long',
         year: 'numeric',
       })
-    : 'Loading...'; // Show loading if month isn't available yet
+    : 'Loading...';
 
   return (
-    // Make this span the full width of the grid on all screen sizes
-    <div className="col-span-1 md:col-span-2 lg:col-span-4 flex items-center mb-4 md:mb-6">
-      <Calendar className="w-5 h-5 mr-2 text-slate-500" />
-      <h2 className="text-xl font-semibold text-slate-700">
-        {formattedDate} Dashboard
+    <div className="flex items-center gap-2">
+      {/* Previous Month Button */}
+      <Button
+        variant="outline"
+        size="icon"
+        onClick={goToPreviousMonth}
+        className="h-8 w-8"
+        // --- ADD disabled attribute ---
+        disabled={!hasPreviousMonth}
+        // -----------------------------
+      >
+         <ChevronLeft className="h-4 w-4" />
+         <span className="sr-only">Previous Month</span>
+      </Button>
+
+      {/* Month Display */}
+      <h2 className="text-xl font-semibold text-slate-700 text-center w-48">
+        {formattedDate}
       </h2>
-      {/* We can add dropdown/buttons here later to change the month */}
+
+      {/* Next Month Button */}
+       <Button
+        variant="outline"
+        size="icon"
+        onClick={goToNextMonth}
+        className="h-8 w-8"
+        // --- ADD disabled attribute ---
+        disabled={!hasNextMonth}
+        // -----------------------------
+       >
+         <ChevronRight className="h-4 w-4" />
+         <span className="sr-only">Next Month</span>
+       </Button>
     </div>
   );
 }

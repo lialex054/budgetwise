@@ -3,13 +3,13 @@
 import csv
 import io
 import json
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import List, Optional
 import calendar
 
 from fastapi import FastAPI, Depends, File, UploadFile, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, exists
 from pydantic import ValidationError
 
 # Created Components
@@ -136,7 +136,7 @@ async def chat_with_ai(chat_request: schemas.ChatRequest, db: Session = Depends(
 
         # Construct prompt
         prompt = f"""
-        You are a friendly and helpful financial assistant called BudgetWise.
+        You are a friendly and helpful financial assistant called Felix.
         Analyze the following list of transactions to answer the user's question.
         Provide a concise, conversational answer.
 
@@ -372,7 +372,6 @@ def set_budget(budget_update: schemas.BudgetUpdate, db: Session = Depends(get_db
         print(f"ERROR: Could not commit budget. Rolling back. Error: {e}") # Debug line
         raise HTTPException(status_code=500, detail="Failed to save budget to database.")
 
-# backend/main.py - DEBUGGING VERSION
 @app.get("/dashboard-data/")
 def get_dashboard_data(
     month: Optional[str] = None,  # Accepts YYYY-MM format
@@ -413,62 +412,109 @@ def get_dashboard_data(
     transactions_in_month_query = db.query(models.Transaction).filter(
         models.Transaction.date >= start_of_month,
         models.Transaction.date <= end_of_month
-    )
+    ).order_by(models.Transaction.date.asc())
+
+    # Fetch all transactions now for trend calculation
+    all_transactions_for_month = transactions_in_month_query.all()
 
     # 3a. Calculate Total Spend for the target month
-    total_spend = transactions_in_month_query.with_entities(func.sum(models.Transaction.amount)).scalar() or 0.0
+    total_spend = sum(t.amount for t in all_transactions_for_month if t.amount is not None) # Safer sum
     print(f"Total spend for {start_of_month.strftime('%Y-%m')}: {total_spend}")
 
-    # 3b. Get Spending Breakdown for the target month
-    category_spend_result = transactions_in_month_query.with_entities(
-        models.Transaction.category,
-        func.sum(models.Transaction.amount).label("total")
-    ).group_by(models.Transaction.category).order_by(func.sum(models.Transaction.amount).desc()).all()
+    # 3b. Get Spending Breakdown
+    # Need to recalculate grouping from the fetched list or re-query
+    # Using a dictionary for aggregation:
+    category_totals = {}
+    for t in all_transactions_for_month:
+        category_totals[t.category] = category_totals.get(t.category, 0) + (t.amount or 0)
 
-    spending_breakdown = [{"category": category, "total": total} for category, total in category_spend_result]
+    spending_breakdown = [{"category": cat, "total": tot} for cat, tot in sorted(category_totals.items(), key=lambda item: item[1], reverse=True)]
     print(f"Spending breakdown: {spending_breakdown}")
 
     # 3c. Get Top Spending Category
     top_category = spending_breakdown[0] if spending_breakdown else {"category": "N/A", "total": 0}
     print(f"Top category: {top_category}")
 
-    # 3d. Get Recent Transactions (limit 5 for the target month)
-    recent_transactions_result = transactions_in_month_query.order_by(models.Transaction.date.desc()).limit(5).all()
-    # Convert recent transactions for JSON compatibility (FastAPI might handle this, but explicit is safer)
-    recent_transactions = [
+    # 3d. Get ALL Transactions for the month (already fetched, just format)
+    transactions = [
         {"id": t.id, "merchant_name": t.merchant_name, "amount": t.amount, "date": t.date.isoformat(), "category": t.category, "transaction_id": t.transaction_id}
-        for t in recent_transactions_result
+        for t in sorted(all_transactions_for_month, key=lambda t: t.date, reverse=True) # Sort descending for display
     ]
-    print(f"Recent transactions: {recent_transactions}")
+    print(f"Fetched {len(transactions)} transactions for the month.")
 
+    # --- NEW: 3e. Check for Previous/Next Month Data ---
+    # Previous Month Boundaries
+    prev_month_end = start_of_month - timedelta(days=1)
+    prev_month_start = prev_month_end.replace(day=1)
+
+    # Next Month Boundaries
+    next_month_start = end_of_month + timedelta(days=1)
+    next_num_days = calendar.monthrange(next_month_start.year, next_month_start.month)[1]
+    next_month_end = next_month_start.replace(day=next_num_days)
+
+    # Check existence using exists() for efficiency
+    has_previous_month_data = db.query(
+        exists().where(
+            models.Transaction.date >= prev_month_start,
+            models.Transaction.date <= prev_month_end
+        )
+    ).scalar()
+
+    has_next_month_data = db.query(
+        exists().where(
+            models.Transaction.date >= next_month_start,
+            models.Transaction.date <= next_month_end
+        )
+    ).scalar()
+
+    print(f"Prev month data: {has_previous_month_data}, Next month data: {has_next_month_data}")
+    # --- END: Check ---
 
     # --- 4. CALCULATE METRICS ---
-    target_daily_spend = (monthly_budget / num_days_in_month) if monthly_budget > 0 and num_days_in_month > 0 else 0.0
+    # target_daily_spend calculation remains the same
+    target_daily_spend_per_day = (monthly_budget / num_days_in_month) if monthly_budget > 0 and num_days_in_month > 0 else 0.0
 
-    # Determine days passed in the target month relative to today
-    if target_date.year == today_date.year and target_date.month == today_date.month:
-        # If target month is the current month, use today's day number
-        days_so_far = today_day_num
-    elif target_date < today_date.replace(day=1):
-        # If target month is in the past, use the total days in that month
-        days_so_far = num_days_in_month
-    else:
-        # If target month is in the future (unlikely but possible), use 0 or 1? Let's use 1 to avoid division by zero.
-        days_so_far = 1
-
+    # avg_daily_spend calculation remains the same
+    if target_date.year == today_date.year and target_date.month == today_date.month: days_so_far = today_day_num
+    elif target_date < today_date.replace(day=1): days_so_far = num_days_in_month
+    else: days_so_far = 1
     avg_daily_spend = (total_spend / days_so_far) if days_so_far > 0 else 0.0
-    print(f"Target daily spend: {target_daily_spend}, Avg daily spend: {avg_daily_spend}")
+    print(f"Target daily spend per day: {target_daily_spend_per_day}, Avg daily spend: {avg_daily_spend}") # Renamed target for clarity
+
+    # --- NEW: 4c. Calculate Spending Trend Data ---
+    spending_trend_data = []
+    cumulative_spend = 0.0
+    transaction_idx = 0
+    daily_target = 0.0
+
+    for day_num in range(1, num_days_in_month + 1):
+        current_day_date = start_of_month + timedelta(days=day_num - 1)
+        daily_target += target_daily_spend_per_day # Accumulate target linearly
+
+        # Sum transactions up to the end of the current day
+        while transaction_idx < len(all_transactions_for_month) and all_transactions_for_month[transaction_idx].date <= current_day_date:
+            cumulative_spend += all_transactions_for_month[transaction_idx].amount or 0
+            transaction_idx += 1
+
+        spending_trend_data.append({
+            "day": day_num,
+            "actual": round(cumulative_spend, 2), # Actual cumulative spend
+            "target": round(daily_target, 2)     # Target cumulative spend
+        })
+    print(f"Spending trend data calculated for {len(spending_trend_data)} days.")
 
     # --- 5. RETURN THE FULL JSON PAYLOAD ---
-    # Use camelCase keys to match frontend expectations
     return {
         "selectedMonth": start_of_month.strftime('%Y-%m'),
         "monthlyBudget": monthly_budget,
         "totalSpend": total_spend,
         "avgDailySpend": avg_daily_spend,
-        "targetDailySpend": target_daily_spend,
+        "targetDailySpendPerDay": target_daily_spend_per_day,
         "topCategory": top_category,
         "spendingBreakdown": spending_breakdown,
-        "recentTransactions": recent_transactions # Return the converted list
+        "transactions": transactions,
+        "spendingTrendData": spending_trend_data,
+        "hasPreviousMonthData": has_previous_month_data,
+        "hasNextMonthData": has_next_month_data
     }
 
